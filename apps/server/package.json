@@ -11,9 +11,14 @@
     "cf-typegen": "wrangler types --env-interface CloudflareBindings"
   },
   "dependencies": {
-    "hono": "^4.13.16"
+    "@securepass/crypto": "workspace:*",
+    "@securepass/shared": "workspace:*",
+    "drizzle-orm": "^0.45.4",
+    "hono": "^4.13.16",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "drizzle-kit": "^0.31.11",
     "typescript": "^5.9.0",
     "wrangler": "^4.110.0"
   }

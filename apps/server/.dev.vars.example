@@ -1,0 +1,11 @@
+# Copy to .dev.vars for local dev. Each key is 32 random bytes as base64url, one purpose each:
+#   head -c 32 /dev/urandom | basenc --base64url | tr -d '=\n'
+# In production set them with `wrangler secret put <NAME>`.
+SETUP_TOKEN=change-me-at-least-16-characters
+AUTH_HMAC_KEY=
+CODE_HMAC_KEY=
+IP_HASH_KEY=
+PRELOGIN_KEY=
+TOTP_ENC_KEY=
+# Comma separated extension origins, e.g. chrome-extension://<id>
+ALLOWED_ORIGINS=

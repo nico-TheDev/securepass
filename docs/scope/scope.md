@@ -68,7 +68,7 @@ The shared `packages/crypto` pieces that one login item needs: seal and open wit
   - [x] `deriveMasterKey` with `assertKdf` and RFC 9106 vectors (AC-3, AC-5)
   - [x] `splitKeys` with RFC 5869 vectors (AC-2)
   - [x] Vault key wrap, `sealItem`/`openItem`, `ItemPayload` schema (AC-6, AC-7, AC-23)
-- [ ] Verify it: `/check verify crypto core basics`
+- [x] Verify it: `/check verify crypto core basics`
 - [ ] Test it: `/test crypto core basics`
 - [ ] Review it: `/check review crypto core basics`
 - [ ] Document it: `/document crypto core basics`
@@ -79,15 +79,15 @@ The shared `packages/crypto` pieces that one login item needs: seal and open wit
 The Hono API on Workers and D1 with just enough to create the account, log in, and sync one item.
 **Done when:** setup works once with the right `SETUP_TOKEN` and returns 409 after, login returns a device token, and an item can be saved with `If-Match` and read back through `GET /api/sync`. The server never sees plaintext.
 - [x] Design it (spec): `/architect sync server`
-- [ ] Build it: `/develop sync server basics`
-  - [ ] Hono app, D1 migration for all four tables, redacting logger, security headers (AC-2, AC-23)
-  - [ ] `POST /api/setup`, prelogin, login, device tokens and 401 codes (AC-1, AC-2)
-  - [ ] `PUT /api/items/:id` with `If-Match` and `GET /api/sync` (AC-8, AC-9)
+- [x] Build it: `/develop sync server basics`
+  - [x] Hono app, D1 migration for all four tables, redacting logger, security headers (AC-2, AC-23)
+  - [x] `POST /api/setup`, prelogin, login, device tokens and 401 codes (AC-1, AC-2)
+  - [x] `PUT /api/items/:id` with `If-Match` and `GET /api/sync` (AC-8, AC-9)
 - [ ] Verify it: `/check verify sync server basics`
 - [ ] Test it: `/test sync server basics`
 - [ ] Review it: `/check review sync server basics`
 - [ ] Document it: `/document sync server basics`
-  [Spec 0001.2](../specs/0001-securepass-vault/0002-sync-server.md)
+  [Spec 0001.2](../specs/0001-securepass-vault/0002-sync-server.md) · code in `apps/server`, `packages/shared`
 
 ### 5. Web vault: setup, unlock, first login
 
