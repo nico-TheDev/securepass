@@ -69,3 +69,20 @@ export const syncResponseSchema = z.object({
   full_resync: z.boolean(),
 })
 export type SyncResponse = z.infer<typeof syncResponseSchema>
+
+/** Response of `POST /api/setup`. */
+export const setupResponseSchema = z.object({ token: base64UrlSchema })
+export type SetupResponse = z.infer<typeof setupResponseSchema>
+
+/** Response of `POST /api/auth/prelogin`. */
+export const preloginResponseSchema = z.object({ kdf: kdfParamsSchema, kdf_salt: base64UrlSchema })
+export type PreloginResponse = z.infer<typeof preloginResponseSchema>
+
+/** Response of `POST /api/auth/login`. */
+export const loginResponseSchema = z.object({
+  token: base64UrlSchema,
+  account_id: z.uuid(),
+  wrapped_vault_key: base64UrlSchema,
+  revision: z.number().int(),
+})
+export type LoginResponse = z.infer<typeof loginResponseSchema>
