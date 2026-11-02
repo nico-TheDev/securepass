@@ -63,16 +63,16 @@ Capture conventions, then install lint, format, and pre commit enforcement from 
 The shared `packages/crypto` pieces that one login item needs: seal and open with tamper checks, Argon2id key stretching, key splitting, and item sealing.
 **Done when:** a login item sealed with a master password opens again, any changed byte or moved item id fails to open, and KDF settings outside the allowed range are refused.
 - [x] Design it (spec): `/architect crypto core`
-- [ ] Build it: `/develop crypto core basics`
-  - [ ] Envelope `seal`/`open` with version byte and per type prefixes (AC-6)
-  - [ ] `deriveMasterKey` with `assertKdf` and RFC 9106 vectors (AC-3, AC-5)
-  - [ ] `splitKeys` with RFC 5869 vectors (AC-2)
-  - [ ] Vault key wrap, `sealItem`/`openItem`, `ItemPayload` schema (AC-6, AC-7, AC-23)
+- [x] Build it: `/develop crypto core basics`
+  - [x] Envelope `seal`/`open` with version byte and per type prefixes (AC-6)
+  - [x] `deriveMasterKey` with `assertKdf` and RFC 9106 vectors (AC-3, AC-5)
+  - [x] `splitKeys` with RFC 5869 vectors (AC-2)
+  - [x] Vault key wrap, `sealItem`/`openItem`, `ItemPayload` schema (AC-6, AC-7, AC-23)
 - [ ] Verify it: `/check verify crypto core basics`
 - [ ] Test it: `/test crypto core basics`
 - [ ] Review it: `/check review crypto core basics`
 - [ ] Document it: `/document crypto core basics`
-  [Spec 0001.1](../specs/0001-securepass-vault/0001-crypto-core.md)
+  [Spec 0001.1](../specs/0001-securepass-vault/0001-crypto-core.md) · code in `packages/crypto`, `packages/shared`
 
 ### 4. Sync server basics
 

@@ -10,9 +10,16 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "build": "tsc --noEmit"
   },
   "devDependencies": {
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^2.4.0",
+    "@securepass/shared": "workspace:*",
+    "hash-wasm": "^4.12.0"
   }
 }
