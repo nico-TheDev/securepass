@@ -1,0 +1,26 @@
+{
+  "name": "securepass",
+  "private": true,
+  "packageManager": "pnpm@11.15.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "build": "pnpm -r build",
+    "dev:server": "pnpm --filter @securepass/server dev",
+    "dev:web": "pnpm --filter @securepass/web dev",
+    "dev:extension": "pnpm --filter @securepass/extension dev",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "test": "pnpm -r --if-present test",
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.4",
+    "lefthook": "2.2.2"
+  }
+}
