@@ -1,7 +1,7 @@
 export { fromBase64Url, toBase64Url, zeroize } from './bytes'
 export { type EnvelopeKind, open, seal } from './envelope'
 export type { CryptoError } from './errors'
-export { MAX_ITEM_BYTES, openItem, type SealedItem, sealItem } from './item'
+export { MAX_ITEM_BYTES, openItem, sealItem } from './item'
 export {
   assertKdf,
   type DeriveMasterKeyInput,
@@ -9,5 +9,6 @@ export {
   KDF_CEILING,
   KDF_FLOOR,
 } from './kdf'
-export { hkdf, newAccountId, newVaultKey, splitKeys } from './keys'
-export { unwrapVaultKey, wrapVaultKey } from './vault-key'
+export { hkdf, newAccountId, newKdfSalt, newVaultKey, splitKeys } from './keys'
+export { newRecoveryKit, type RecoveryKit } from './recovery'
+export { unwrapVaultKey, wrapVaultKey, wrapVaultKeyRecovery } from './vault-key'

@@ -34,3 +34,6 @@ export const splitKeys = async (
   enc_key: await hkdf(masterKey, 'securepass/v1/enc'),
   auth_key: await hkdf(masterKey, 'securepass/v1/auth'),
 })
+
+/** Makes the 16 random bytes of a new KDF salt. The client makes it at setup. */
+export const newKdfSalt = (): Uint8Array => randomBytes(16)

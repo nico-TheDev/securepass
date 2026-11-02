@@ -44,3 +44,13 @@ export const unwrapVaultKey = async (
     ? ok(opened.value)
     : err(cryptoError('Damaged', 'Vault key has the wrong length'))
 }
+
+/**
+ * Seals the vault key under the recovery key's `recovery_enc_key`, bound to the account id.
+ * @returns The envelope as base64url text, ready for JSON.
+ */
+export const wrapVaultKeyRecovery = (
+  recoveryEncKey: Uint8Array,
+  vaultKey: Uint8Array,
+  accountId: string,
+): string => toBase64Url(seal(recoveryEncKey, vaultKey, `vault-key-recovery|${accountId}`))

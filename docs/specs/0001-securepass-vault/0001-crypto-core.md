@@ -26,8 +26,9 @@ recovery_auth_key = HKDF(recovery_key, info "securepass/v1/recovery-auth")
 wrapped_vault_key_recovery  = seal(recovery_enc_key, vault_key, ad = "vault-key-recovery|" + account_id)
 
 per item: item_key = 32 random bytes
-item ciphertext = { wrapped_item_key: seal(vault_key, item_key, ad = "item-key|" + item_id),
-                    payload:          seal(item_key, JSON(ItemPayload), ad = "item|" + item_id) }
+wrapped_item_key = seal(vault_key, item_key, ad = "item-key|" + item_id)
+payload          = seal(item_key, JSON(ItemPayload), ad = "item|" + item_id)
+item ciphertext  = pack(wrapped_item_key, payload)    (one opaque blob, see "Item ciphertext format")
 
 PIN (extension only, 6+ characters): pin_key = Argon2id(NFC(PIN), pin_salt 16 random bytes, floor params)
 pin_wrapped_vault_key = seal(pin_key, vault_key, ad = "pin|" + device_id)   (memory only, see 0004)
@@ -36,6 +37,17 @@ pin_wrapped_vault_key = seal(pin_key, vault_key, ad = "pin|" + device_id)   (mem
 Binding `kdf` and `kdf_salt` into the vault key AD means a server that swaps the settings makes unlock fail instead of silently weakening it.
 
 **Envelope format** (`seal` output, base64url in JSON): `0x01` version byte, 24 byte nonce, ciphertext with 16 byte Poly1305 tag. The AD bytes passed to the cipher are `[0x01] + utf8("securepass/v1|" + ad)`, so the version byte is explicitly authenticated. Every envelope type uses its own AD prefix (`vault-key`, `vault-key-recovery`, `item-key`, `item`, `pin`). Any unknown version byte is rejected; there is no fallback.
+
+**Item ciphertext format** (the one `ciphertext` field in `PUT /api/items/:id` and `GET /api/sync`, base64url in JSON): the two envelopes are joined into one binary blob, then encoded once.
+
+| Bytes                 | Content                                                                     |
+| --------------------- | --------------------------------------------------------------------------- |
+| 1                     | Container version, `0x01`                                                   |
+| 2                     | Length `L` of the wrapped item key envelope, unsigned, big endian           |
+| `L`                   | `wrapped_item_key` envelope, exactly as `seal` made it                      |
+| the rest              | `payload` envelope, exactly as `seal` made it                               |
+
+The container adds no secrets and needs no tag of its own: both envelopes are already authenticated and bound to the `item_id`, and the server treats the blob as opaque bytes. Moving the pieces around, swapping the two envelopes, or editing the length makes an open fail. `openItem` returns `Damaged` for an unknown container version, a length that runs past the end, an empty payload part, or invalid base64url; there is no fallback format. The 64 KiB cap (`MAX_ITEM_BYTES`, the same number as the server's `size` limit) applies to the whole blob including these 3 header bytes, so what `sealItem` accepts the server accepts.
 
 **KDF rules** (`assertKdf`):
 - `alg` must be `"argon2id"`; anything else throws `UnsupportedKdfError`.
@@ -62,12 +74,12 @@ Binding `kdf` and `kdf_salt` into the vault key AD means a server that swaps the
 | `note`             | string                                                                                                 | All types                                                                                                |
 | `identity`         | `{ title, first, last, email, phone, address1, address2, city, region, postal, country }` all nullable | Identity only                                                                                            |
 
-The sealed item (wrapped key plus payload) must stay under 64 KiB; `sealItem` throws `ItemTooLargeError` above that.
+The packed item ciphertext (3 header bytes, wrapped key, and payload) must stay within 64 KiB; `sealItem` returns `ItemTooLarge` above that.
 
 **Rollback detection**: the device stores `seen_seq[item_id]` in cache `meta`. If a synced item opens to a `seq` lower than `seen_seq`, the client keeps its cached copy, flags "the server sent an older version of this item", and does not overwrite. Hidden items (a server that withholds rows) are not detected in v1; that limit is written in index.md Consequences.
 
 **Public API of `packages/crypto`** (all async, all take and return `Uint8Array` or typed objects):
-`newAccountId()` · `deriveMasterKey(password, kdf, pinned_kdf)` · `splitKeys(master_key) → { enc_key, auth_key }` · `newVaultKey()` · `wrapVaultKey / unwrapVaultKey(account_id, kdf, kdf_salt)` · `newRecoveryKit() → { recovery_key, display, recovery_auth_key, recovery_enc_key }` · `sealItem(vault_key, item_id, payload)` · `openItem(vault_key, item_id, ciphertext) → payload | DamagedItemError` · `wrapWithPin / unwrapWithPin(device_id)` · `assertKdf(kdf, pinned_kdf)` · `zeroize(buf)`.
+`newAccountId()` · `deriveMasterKey(password, kdf, pinned_kdf)` · `splitKeys(master_key) → { enc_key, auth_key }` · `newVaultKey()` · `wrapVaultKey / unwrapVaultKey(account_id, kdf, kdf_salt)` · `newRecoveryKit() → { recovery_key, display, recovery_auth_key, recovery_enc_key }` · `sealItem(vault_key, item_id, payload) → ciphertext` (the packed base64url string) · `openItem(vault_key, item_id, ciphertext) → payload | DamagedItemError` · `wrapWithPin / unwrapWithPin(device_id)` · `assertKdf(kdf, pinned_kdf)` · `zeroize(buf)`.
 
 **Value sourcing**:
 
@@ -77,6 +89,7 @@ The sealed item (wrapped key plus payload) must stay under 64 KiB; `sealItem` th
 | Unlock     | `kdf`, `kdf_salt`                          | prelogin (0002), or cache `meta` when offline                                   |
 | Unlock     | pinned `kdf`                               | cache `meta.pinned_kdf` (absent on a brand new device: floor applies)           |
 | Seal item  | `item_id`                                  | UUID v4 made on the client when the item is created                             |
+| Seal item  | `ciphertext` sent to the server            | `sealItem` output (the packed blob above), sent unchanged as `ciphertext`        |
 | Seal item  | `seq`                                      | `max(seen_seq[item_id], payload.seq) + 1`                                       |
 | Seal item  | nonces, item keys, vault key, recovery key | `crypto.getRandomValues`                                                        |
 | PIN wrap   | `device_id`                                | UUID v4 made at first launch of the extension, stored in `chrome.storage.local` |
@@ -94,7 +107,8 @@ The sealed item (wrapped key plus payload) must stay under 64 KiB; `sealItem` th
 
 **Critical test scenarios**:
 - Argon2id matches RFC 9106 test vectors and HKDF matches RFC 5869 vectors, verifies **AC-5**.
-- Seal then open round trips every payload type, verifies **AC-7**.
+- Seal then open round trips every payload type through the packed `ciphertext` string, verifies **AC-7**.
+- A packed blob with an unknown container version, a length past the end, swapped envelopes, or a different `item_id` returns `Damaged`; a blob over 64 KiB is refused by `sealItem`, verifies **AC-6**, **AC-23**.
 - Flipping any byte of an envelope (including the version byte), or opening under a different `item_id`, throws `DamagedItemError`, verifies **AC-6**.
 - m=19456 throws `WeakKdfError`; m=4194304 throws `KdfOutOfRangeError`; a server kdf below the pinned one throws `KdfDowngradeError`; changing `kdf_salt` makes vault key unwrap fail, verifies **AC-3**.
 - An item with lower `seq` than `seen_seq` is not applied, verifies **AC-6**.
@@ -107,6 +121,7 @@ The sealed item (wrapped key plus payload) must stay under 64 KiB; `sealItem` th
 2. (slice 1) `deriveMasterKey` with `hash-wasm`, NFC normalization, `assertKdf` (floor, ceiling, alg, pinning), RFC 9106 vectors, satisfies **AC-3**, **AC-5**.
 3. (slice 1) `splitKeys` via WebCrypto HKDF with RFC 5869 vectors, satisfies **AC-2**.
 4. (slice 1) `newAccountId`, vault key wrap with kdf bound AD, item key wrapping, `sealItem` / `openItem`, `ItemPayload` zod schema, size cap, satisfies **AC-6**, **AC-7**, **AC-23**.
+4a. (slice 1) Pack and unpack the item ciphertext (`0x01 | u16 length | wrapped_item_key | payload`): `sealItem` returns the base64url string, `openItem` takes it, the size cap covers the whole blob, with tests for each `Damaged` case, satisfies **AC-6**, **AC-7**, **AC-23**.
 5. Rollback check helper (`seq` vs `seen_seq`), satisfies **AC-6**.
 6. Recovery kit generation and unwrap, satisfies **AC-20**.
 7. PIN wrap and unwrap with 6 character minimum, satisfies **AC-13**.

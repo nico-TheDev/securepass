@@ -6,6 +6,7 @@ import { open, seal } from './envelope'
 import { openItem, sealItem } from './item'
 import { assertKdf, deriveMasterKey, KDF_FLOOR } from './kdf'
 import { hkdf, newAccountId, newVaultKey, splitKeys } from './keys'
+import { newRecoveryKit } from './recovery'
 import { unwrapVaultKey, wrapVaultKey } from './vault-key'
 
 const hex = (bytes: Uint8Array): string =>
@@ -133,10 +134,19 @@ describe('vault key and items', () => {
     expect(opened.ok && opened.value.name).toBe('Example')
     const moved = await openItem(vaultKey, crypto.randomUUID(), sealed.value)
     expect(!moved.ok && moved.error.kind).toBe('Damaged')
-    const flipped = fromBase64Url(sealed.value.payload) ?? new Uint8Array()
-    flipped[30] = (flipped[30] ?? 0) ^ 1
-    const damaged = await openItem(vaultKey, id, { ...sealed.value, payload: toBase64Url(flipped) })
+    const flipped = fromBase64Url(sealed.value) ?? new Uint8Array()
+    flipped[flipped.length - 5] = (flipped[flipped.length - 5] ?? 0) ^ 1
+    const damaged = await openItem(vaultKey, id, toBase64Url(flipped))
     expect(!damaged.ok && damaged.error.kind).toBe('Damaged')
+    const badVersion = fromBase64Url(sealed.value) ?? new Uint8Array()
+    badVersion[0] = 2
+    const unknown = await openItem(vaultKey, id, toBase64Url(badVersion))
+    expect(!unknown.ok && unknown.error.kind).toBe('Damaged')
+    const badLength = fromBase64Url(sealed.value) ?? new Uint8Array()
+    badLength[1] = 0xff
+    const past = await openItem(vaultKey, id, toBase64Url(badLength))
+    expect(!past.ok && past.error.kind).toBe('Damaged')
+    expect((await openItem(vaultKey, id, '!!')).ok).toBe(false)
   }, 20000)
 
   it('refuses an item over 64 KiB', async () => {
@@ -145,5 +155,14 @@ describe('vault key and items', () => {
       note: 'x'.repeat(70000),
     })
     expect(!big.ok && big.error.kind).toBe('ItemTooLarge')
+  })
+
+  it('makes a recovery kit of 13 Base32 groups of 4', async () => {
+    const kit = await newRecoveryKit()
+    expect(kit.groups).toHaveLength(13)
+    expect(kit.groups.every((g) => /^[A-Z2-7]{4}$/.test(g))).toBe(true)
+    expect(kit.display).toBe(kit.groups.join('-'))
+    expect(kit.recovery_auth_key).toHaveLength(32)
+    expect(kit.recovery_enc_key).not.toEqual(kit.recovery_auth_key)
   })
 })
