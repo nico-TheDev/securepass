@@ -10,5 +10,12 @@ export {
   KDF_FLOOR,
 } from './kdf'
 export { hkdf, newAccountId, newKdfSalt, newVaultKey, splitKeys } from './keys'
-export { newRecoveryKit, type RecoveryKit } from './recovery'
+export { PIN_MIN_LENGTH, type PinWrap, unwrapWithPin, wrapWithPin } from './pin'
+export {
+  newRecoveryKit,
+  parseRecoveryKey,
+  type RecoveryKit,
+  unwrapVaultKeyRecovery,
+} from './recovery'
+export { isRollback, nextSeq } from './rollback'
 export { unwrapVaultKey, wrapVaultKey, wrapVaultKeyRecovery } from './vault-key'
