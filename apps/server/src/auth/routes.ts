@@ -1,9 +1,12 @@
-import { assertKdf, fromBase64Url, KDF_FLOOR, toBase64Url } from '@securepass/crypto'
+import { assertKdf, KDF_FLOOR, toBase64Url } from '@securepass/crypto'
 import {
   type KdfParams,
   kdfParamsSchema,
+  type LoginResponse,
   loginRequestSchema,
   preloginRequestSchema,
+  type RecoverResponse,
+  recoverRequestSchema,
   setupRequestSchema,
 } from '@securepass/shared'
 import { eq } from 'drizzle-orm'
@@ -12,24 +15,18 @@ import type { AppEnv } from '../app-env'
 import { createDb } from '../db/client'
 import { account } from '../db/schema'
 import { parseBody } from '../lib/body'
-import { hmacSha256, newDeviceToken, secretsMatch, timingSafeEqual } from '../lib/hmac'
+import { blobOf, randomBytes } from '../lib/bytes'
+import { hmacSha256, newDeviceToken, secretsMatch, sha256, timingSafeEqual } from '../lib/hmac'
 import { errorJson, nowSeconds, unauthorized } from '../lib/http'
 import { SESSION_TTL_SECONDS } from '../middleware/bearer'
+import { AUTH_KEY_LENGTH, decode, KDF_SALT_LENGTH } from './decode'
+import { enterLimiter, recordFailure, recordSuccess, slowIfAccountUnderAttack } from './limiter'
+import { checkSecondFactor, consumeSecondFactor } from './second-factor'
 
-const AUTH_KEY_LENGTH = 32
-const KDF_SALT_LENGTH = 16
+/** A recovery token is good for 10 minutes. */
+const RECOVERY_TOKEN_TTL_SECONDS = 10 * 60
 
-/** An `ArrayBuffer` copy of the bytes, the form D1 accepts for a blob. */
-const blobOf = (bytes: Uint8Array): ArrayBuffer => bytes.slice().buffer
-
-/** Decodes base64url and checks the length (`undefined` length means any non empty value). */
-const decode = (text: string, length?: number): Uint8Array | null => {
-  const bytes = fromBase64Url(text)
-  if (!bytes || bytes.length === 0) return null
-  return length === undefined || bytes.length === length ? bytes : null
-}
-
-/** Setup, prelogin, and login. */
+/** Setup, prelogin, login, and recover. None of these need a session. */
 export const authRoutes = new Hono<AppEnv>()
 
 authRoutes.post('/setup', async (c) => {
@@ -109,6 +106,10 @@ authRoutes.post('/auth/prelogin', async (c) => {
   if (!body.ok) return errorJson(c, 400, body.error)
   const { email } = body.value
 
+  // Prelogin shares the per IP gate, so a blocked IP cannot keep probing emails.
+  const gate = await enterLimiter(c, 'login')
+  if ('blocked' in gate) return gate.blocked
+
   const db = createDb(c.env.DB)
   const row = await db
     .select({ kdf: account.kdf, kdfSalt: account.kdfSalt })
@@ -120,7 +121,9 @@ authRoutes.post('/auth/prelogin', async (c) => {
     if (kdf.success) return c.json({ kdf: kdf.data, kdf_salt: toBase64Url(row.kdfSalt) })
   }
 
-  // Unknown email: answer with a stable fake salt so the reply does not reveal whether it exists.
+  // Unknown email: it counts toward the per IP limit, and the answer is a stable fake salt so the
+  // reply does not reveal whether the email exists.
+  await recordFailure(c, gate.pass, null)
   const fakeSalt = (await hmacSha256(c.var.config.preloginKey, email)).slice(0, KDF_SALT_LENGTH)
   const floor: KdfParams = { alg: 'argon2id', ...KDF_FLOOR }
   return c.json({ kdf: floor, kdf_salt: toBase64Url(fakeSalt) })
@@ -132,21 +135,27 @@ authRoutes.post('/auth/login', async (c) => {
   if (!body.ok) return errorJson(c, 400, body.error)
   const req = body.value
 
-  const authKey = decode(req.auth_key, AUTH_KEY_LENGTH)
-  if (!authKey) return unauthorized(c, 'invalid')
+  const gate = await enterLimiter(c, 'login')
+  if ('blocked' in gate) return gate.blocked
 
   const db = createDb(c.env.DB)
   const row = await db.select().from(account).where(eq(account.email, req.email)).get()
+  if (row) await slowIfAccountUnderAttack(c, row.id)
 
   // Always compute and compare a proof, so an unknown email costs the same as a wrong key.
+  const authKey = decode(req.auth_key, AUTH_KEY_LENGTH) ?? new Uint8Array(AUTH_KEY_LENGTH)
   const proof = await hmacSha256(config.authHmacKey, authKey)
   const stored = row?.authKeyHmac ?? new Uint8Array(proof.length)
   const keyMatches = timingSafeEqual(proof, stored)
-  if (!row || !keyMatches) return unauthorized(c, 'invalid')
 
-  // TOTP is skipped only while it is not enabled. Checking a code is a later build task, so a
-  // vault with TOTP on fails closed here instead of letting the password alone through.
-  if (row.totpEnabled !== 0) return unauthorized(c, 'invalid')
+  // Both credentials are checked together and fail with one answer. The second proof is only
+  // used up once the auth key is known to be right.
+  const factor = row ? await checkSecondFactor(c, row, req, true) : null
+  if (!row || !keyMatches || !factor || !(await consumeSecondFactor(c, row.id, factor))) {
+    await recordFailure(c, gate.pass, row?.id ?? null)
+    return unauthorized(c, 'invalid')
+  }
+  await recordSuccess(c, gate.pass, row.id)
 
   const now = nowSeconds()
   const { token, tokenHash } = await newDeviceToken()
@@ -165,10 +174,52 @@ authRoutes.post('/auth/login', async (c) => {
     )
     .run()
 
-  return c.json({
+  const response: LoginResponse = {
     token,
     account_id: row.id,
     wrapped_vault_key: toBase64Url(row.wrappedVaultKey),
     revision: row.revision,
-  })
+  }
+  return c.json(response)
+})
+
+authRoutes.post('/auth/recover', async (c) => {
+  const { config } = c.var
+  const body = await parseBody(c, recoverRequestSchema)
+  if (!body.ok) return errorJson(c, 400, body.error)
+  const req = body.value
+
+  const gate = await enterLimiter(c, 'recover')
+  if ('blocked' in gate) return gate.blocked
+
+  const db = createDb(c.env.DB)
+  const row = await db.select().from(account).where(eq(account.email, req.email)).get()
+  if (row) await slowIfAccountUnderAttack(c, row.id)
+
+  const recoveryAuthKey =
+    decode(req.recovery_auth_key, AUTH_KEY_LENGTH) ?? new Uint8Array(AUTH_KEY_LENGTH)
+  const proof = await hmacSha256(config.authHmacKey, recoveryAuthKey)
+  const keyMatches = timingSafeEqual(proof, row?.recoveryAuthHmac ?? new Uint8Array(proof.length))
+
+  const factor = row ? await checkSecondFactor(c, row, req, true) : null
+  if (!row || !keyMatches || !factor || !(await consumeSecondFactor(c, row.id, factor))) {
+    await recordFailure(c, gate.pass, row?.id ?? null)
+    return unauthorized(c, 'invalid')
+  }
+  await recordSuccess(c, gate.pass, row.id)
+
+  // 32 random bytes, returned once and stored only as SHA-256, for one password change.
+  const rawToken = randomBytes(32)
+  await c.env.DB.prepare(
+    'UPDATE account SET recovery_token_hash = ?, recovery_token_expires_at = ? WHERE id = ?',
+  )
+    .bind(blobOf(await sha256(rawToken)), nowSeconds() + RECOVERY_TOKEN_TTL_SECONDS, row.id)
+    .run()
+
+  const response: RecoverResponse = {
+    recovery_token: toBase64Url(rawToken),
+    wrapped_vault_key_recovery: toBase64Url(row.wrappedVaultKeyRecovery),
+    account_id: row.id,
+  }
+  return c.json(response)
 })

@@ -16,11 +16,19 @@ const envSchema = z.object({
   ALLOWED_ORIGINS: z.string().default(''),
 })
 
-/** Validated settings, with each key already decoded to bytes. */
+/** Validated settings, with each key already decoded to bytes. Each key has one purpose. */
 export type Config = {
   readonly setupToken: string
+  /** HMAC key for `auth_key` and `recovery_auth_key`. */
   readonly authHmacKey: Uint8Array
+  /** HMAC key for recovery codes. */
+  readonly codeHmacKey: Uint8Array
+  /** HMAC key for IP addresses, so raw IPs are never stored. */
+  readonly ipHashKey: Uint8Array
+  /** HMAC key for the fake salt prelogin returns for an unknown email. */
   readonly preloginKey: Uint8Array
+  /** AES-256-GCM key for the TOTP secret at rest. */
+  readonly totpEncKey: Uint8Array
   readonly allowedOrigins: readonly string[]
 }
 
@@ -29,7 +37,7 @@ export type Config = {
  * so the caller answers 500 on every request until they are fixed.
  * @param env - The Worker bindings.
  */
-export const parseConfig = (env: CloudflareBindings): Result<Config, string> => {
+export const parseConfig = (env: unknown): Result<Config, string> => {
   const parsed = envSchema.safeParse(env)
   if (!parsed.success) {
     const names = [...new Set(parsed.error.issues.map((issue) => String(issue.path[0])))]
@@ -39,7 +47,10 @@ export const parseConfig = (env: CloudflareBindings): Result<Config, string> => 
   return ok({
     setupToken: parsed.data.SETUP_TOKEN,
     authHmacKey: decode(parsed.data.AUTH_HMAC_KEY),
+    codeHmacKey: decode(parsed.data.CODE_HMAC_KEY),
+    ipHashKey: decode(parsed.data.IP_HASH_KEY),
     preloginKey: decode(parsed.data.PRELOGIN_KEY),
+    totpEncKey: decode(parsed.data.TOTP_ENC_KEY),
     allowedOrigins: parsed.data.ALLOWED_ORIGINS.split(',')
       .map((origin) => origin.trim())
       .filter((origin) => origin.length > 0),

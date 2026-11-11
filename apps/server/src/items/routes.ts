@@ -1,21 +1,20 @@
 import { fromBase64Url } from '@securepass/crypto'
-import { putItemRequestSchema } from '@securepass/shared'
+import { freshTotpRequestSchema, putItemRequestSchema } from '@securepass/shared'
 import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AppEnv } from '../app-env'
+import { requireFreshTotp } from '../auth/second-factor'
 import { createDb } from '../db/client'
-import { item, MAX_ITEM_SIZE } from '../db/schema'
+import { account, item, MAX_ITEM_SIZE } from '../db/schema'
 import { parseBody } from '../lib/body'
-import { errorJson, nowSeconds } from '../lib/http'
+import { blobOf } from '../lib/bytes'
+import { errorJson, noContent, nowSeconds, unauthorized } from '../lib/http'
 import { toSyncItem } from '../sync/mapper'
 import { planWrite } from './rules'
 
 const itemIdSchema = z.uuid()
 const baseRevisionSchema = z.string().regex(/^\d{1,15}$/)
-
-/** An `ArrayBuffer` copy of the bytes, the form D1 accepts for a blob. */
-const blobOf = (bytes: Uint8Array): ArrayBuffer => bytes.slice().buffer
 
 /** Item writes. Every route here sits behind the bearer middleware. */
 export const itemRoutes = new Hono<AppEnv>()
@@ -92,4 +91,76 @@ itemRoutes.put('/items/:id', async (c) => {
   if (revision === undefined) return errorJson(c, 500, 'write_failed')
 
   return c.json({ revision, updated_at: now, purge_after: purgeAfter })
+})
+
+itemRoutes.delete('/items/:id', async (c) => {
+  const id = itemIdSchema.safeParse(c.req.param('id'))
+  const ifMatch = baseRevisionSchema.safeParse(c.req.header('If-Match'))
+  if (!id.success || !ifMatch.success) return errorJson(c, 400, 'invalid_request')
+  const body = await parseBody(c, freshTotpRequestSchema)
+  if (!body.ok) return errorJson(c, 400, body.error)
+
+  const { accountId } = c.var
+  const db = createDb(c.env.DB)
+  const owner = await db.select().from(account).where(eq(account.id, accountId)).get()
+  if (!owner) return unauthorized(c, 'invalid')
+  const findItem = () =>
+    db
+      .select()
+      .from(item)
+      .where(and(eq(item.id, id.data), eq(item.accountId, accountId)))
+      .get()
+  const existing = await findItem()
+  if (!existing || existing.purgedAt !== null) return errorJson(c, 404, 'not_found')
+  if (existing.revision !== Number(ifMatch.data)) {
+    return errorJson(c, 409, 'conflict', { current: toSyncItem(existing) })
+  }
+
+  const refused = await requireFreshTotp(c, owner, body.value.totp_code)
+  if (refused) return refused
+
+  // A permanent delete leaves a tombstone with a new revision, so every device learns about it.
+  const now = nowSeconds()
+  const [written] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE item SET revision = (SELECT revision + 1 FROM account WHERE id = ?1),
+         ciphertext = NULL, size = 0, updated_at = ?2, deleted_at = COALESCE(deleted_at, ?2),
+         purged_at = ?2
+       WHERE id = ?3 AND account_id = ?1 AND revision = ?4 AND purged_at IS NULL`,
+    ).bind(accountId, now, id.data, existing.revision),
+    c.env.DB.prepare(
+      'UPDATE account SET revision = revision + 1 WHERE id = ? AND changes() > 0',
+    ).bind(accountId),
+  ])
+  if ((written?.meta.changes ?? 0) === 0) {
+    const current = await findItem()
+    return errorJson(c, 409, 'conflict', { current: current ? toSyncItem(current) : null })
+  }
+  return noContent(c)
+})
+
+itemRoutes.delete('/trash', async (c) => {
+  const body = await parseBody(c, freshTotpRequestSchema)
+  if (!body.ok) return errorJson(c, 400, body.error)
+
+  const { accountId } = c.var
+  const db = createDb(c.env.DB)
+  const owner = await db.select().from(account).where(eq(account.id, accountId)).get()
+  if (!owner) return unauthorized(c, 'invalid')
+  const refused = await requireFreshTotp(c, owner, body.value.totp_code)
+  if (refused) return refused
+
+  // Every trashed item becomes a tombstone under one new revision, in one transaction.
+  const now = nowSeconds()
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE item SET revision = (SELECT revision + 1 FROM account WHERE id = ?1),
+         ciphertext = NULL, size = 0, updated_at = ?2, purged_at = ?2
+       WHERE account_id = ?1 AND deleted_at IS NOT NULL AND purged_at IS NULL`,
+    ).bind(accountId, now),
+    c.env.DB.prepare(
+      'UPDATE account SET revision = revision + 1 WHERE id = ? AND changes() > 0',
+    ).bind(accountId),
+  ])
+  return noContent(c)
 })

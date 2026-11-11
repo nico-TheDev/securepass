@@ -1,28 +1,10 @@
 import { err, ok, type Result } from '@securepass/shared'
-import { fromBase64Url, randomBytes } from './bytes'
+import { fromBase32, fromBase64Url, randomBytes, toBase32 } from './bytes'
 import { open } from './envelope'
 import { type CryptoError, cryptoError } from './errors'
 import { hkdf } from './keys'
 
-const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
 const GROUP_SIZE = 4
-
-/** RFC 4648 Base32 without padding. */
-const toBase32 = (bytes: Uint8Array): string => {
-  let bits = 0
-  let value = 0
-  let out = ''
-  for (const byte of bytes) {
-    value = (value << 8) | byte
-    bits += 8
-    while (bits >= 5) {
-      out += BASE32_ALPHABET[(value >>> (bits - 5)) & 31]
-      bits -= 5
-    }
-  }
-  if (bits > 0) out += BASE32_ALPHABET[(value << (5 - bits)) & 31]
-  return out
-}
 
 /** A new recovery kit's key material. `groups` and `display` are what the user sees and keeps. */
 export type RecoveryKit = {
@@ -36,24 +18,6 @@ export type RecoveryKit = {
   readonly recovery_auth_key: Uint8Array
   /** Wraps the vault key for recovery. Never leaves the device. */
   readonly recovery_enc_key: Uint8Array
-}
-
-/** RFC 4648 Base32 decode. Returns `null` for any character outside the alphabet. */
-const fromBase32 = (text: string): Uint8Array | null => {
-  let bits = 0
-  let value = 0
-  const out: number[] = []
-  for (const char of text) {
-    const index = BASE32_ALPHABET.indexOf(char)
-    if (index < 0) return null
-    value = ((value << 5) | index) & 0xfff
-    bits += 5
-    if (bits >= 8) {
-      out.push((value >>> (bits - 8)) & 0xff)
-      bits -= 8
-    }
-  }
-  return Uint8Array.from(out)
 }
 
 const RECOVERY_KEY_LENGTH = 32

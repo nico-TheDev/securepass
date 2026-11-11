@@ -14,5 +14,14 @@ export const errorJson = (
 export const unauthorized = (c: Context<AppEnv>, code: UnauthorizedCode): Response =>
   c.json({ error: 'unauthorized', code }, 401)
 
+/** A 429 from the login limiter, with the seconds to wait in `Retry-After`. */
+export const tooManyRequests = (c: Context<AppEnv>, retryAfter: number): Response =>
+  c.json({ error: 'too_many_requests', retry_after: retryAfter }, 429, {
+    'Retry-After': String(retryAfter),
+  })
+
+/** An empty 204 reply. */
+export const noContent = (c: Context<AppEnv>): Response => c.body(null, 204)
+
 /** Seconds since the Unix epoch. All stored times use this unit. */
 export const nowSeconds = (): number => Math.floor(Date.now() / 1000)

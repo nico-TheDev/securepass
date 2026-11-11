@@ -1,4 +1,4 @@
-export { fromBase64Url, toBase64Url, zeroize } from './bytes'
+export { fromBase32, fromBase64Url, toBase32, toBase64Url, zeroize } from './bytes'
 export { type EnvelopeKind, open, seal } from './envelope'
 export type { CryptoError } from './errors'
 export { MAX_ITEM_BYTES, openItem, sealItem } from './item'

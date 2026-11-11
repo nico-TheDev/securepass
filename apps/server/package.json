@@ -5,10 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "build": "wrangler deploy --dry-run --outdir dist",
+    "build": "pnpm --filter @securepass/web build && wrangler deploy --dry-run --outdir dist",
     "typecheck": "tsc --noEmit",
-    "deploy": "wrangler deploy --minify",
-    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+    "deploy": "pnpm --filter @securepass/web build && wrangler deploy --minify",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "test": "vitest run",
+    "predev": "pnpm --filter @securepass/web build",
+    "pretest": "pnpm --filter @securepass/web build"
   },
   "dependencies": {
     "@securepass/crypto": "workspace:*",
@@ -20,6 +23,8 @@
   "devDependencies": {
     "drizzle-kit": "^0.31.11",
     "typescript": "^5.9.0",
-    "wrangler": "^4.110.0"
+    "wrangler": "^4.110.0",
+    "vitest": "^5.0.5",
+    "@types/node": "^24.19.2"
   }
 }

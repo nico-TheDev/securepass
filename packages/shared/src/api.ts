@@ -86,3 +86,98 @@ export const loginResponseSchema = z.object({
   revision: z.number().int(),
 })
 export type LoginResponse = z.infer<typeof loginResponseSchema>
+
+const totpCodeSchema = z.string().regex(/^\d{6}$/)
+const recoveryCodeSchema = z.string().min(1).max(32)
+
+/** Body of `POST /api/auth/recover`: the recovery proof plus a second proof. */
+export const recoverRequestSchema = z.object({
+  email: emailSchema,
+  recovery_auth_key: base64UrlSchema,
+  totp_code: totpCodeSchema.optional(),
+  recovery_code: recoveryCodeSchema.optional(),
+})
+export type RecoverRequest = z.infer<typeof recoverRequestSchema>
+
+/** Response of `POST /api/auth/recover`. The token is single use and lasts 10 minutes. */
+export const recoverResponseSchema = z.object({
+  recovery_token: base64UrlSchema,
+  wrapped_vault_key_recovery: base64UrlSchema,
+  account_id: z.uuid(),
+})
+export type RecoverResponse = z.infer<typeof recoverResponseSchema>
+
+/** Response of `POST /api/account/totp`. Both values are shown once. */
+export const totpEnrollResponseSchema = z.object({
+  otpauth_uri: z.string(),
+  recovery_codes: z.array(z.string()).length(10),
+})
+export type TotpEnrollResponse = z.infer<typeof totpEnrollResponseSchema>
+
+/** A body that carries only a fresh TOTP code. Used by confirm and by every sensitive action. */
+export const totpCodeRequestSchema = z.object({ totp_code: totpCodeSchema })
+export type TotpCodeRequest = z.infer<typeof totpCodeRequestSchema>
+
+/** A fresh TOTP code that may be left out only while TOTP is not enabled yet. */
+export const freshTotpRequestSchema = z.object({ totp_code: totpCodeSchema.optional() })
+export type FreshTotpRequest = z.infer<typeof freshTotpRequestSchema>
+
+const newPasswordFields = {
+  kdf: kdfParamsSchema,
+  kdf_salt: base64UrlSchema,
+  auth_key: base64UrlSchema,
+  wrapped_vault_key: base64UrlSchema,
+}
+
+/**
+ * Body of `POST /api/account/password`. Either the current auth key plus a fresh TOTP code
+ * (a signed in password change), or a recovery token plus a brand new recovery kit.
+ */
+export const passwordRequestSchema = z.union([
+  z.object({
+    ...newPasswordFields,
+    current_auth_key: base64UrlSchema,
+    totp_code: totpCodeSchema.optional(),
+  }),
+  z.object({
+    ...newPasswordFields,
+    recovery_token: base64UrlSchema,
+    recovery_auth_key: base64UrlSchema,
+    wrapped_vault_key_recovery: base64UrlSchema,
+    device_name: deviceNameSchema,
+  }),
+])
+export type PasswordRequest = z.infer<typeof passwordRequestSchema>
+
+/** Response of `POST /api/account/password`. Recovery also returns 10 new recovery codes. */
+export const passwordResponseSchema = z.object({
+  token: base64UrlSchema,
+  recovery_codes: z.array(z.string()).length(10).optional(),
+})
+export type PasswordResponse = z.infer<typeof passwordResponseSchema>
+
+/** Response of `PUT /api/items/:id`. */
+export const putItemResponseSchema = z.object({
+  revision: z.number().int(),
+  updated_at: z.number().int(),
+  purge_after: z.number().int().nullable(),
+})
+export type PutItemResponse = z.infer<typeof putItemResponseSchema>
+
+/** The body of a 409 from an item write: the row the server holds now, or null if it has none. */
+export const conflictResponseSchema = z.object({ current: syncItemSchema.nullable() })
+export type ConflictResponse = z.infer<typeof conflictResponseSchema>
+
+/** One signed in device, as `GET /api/devices` lists it. */
+export const deviceSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number().int(),
+  last_seen_at: z.number().int(),
+  current: z.boolean(),
+})
+export type Device = z.infer<typeof deviceSchema>
+
+/** Response of `GET /api/devices`. */
+export const devicesResponseSchema = z.object({ devices: z.array(deviceSchema) })
+export type DevicesResponse = z.infer<typeof devicesResponseSchema>
