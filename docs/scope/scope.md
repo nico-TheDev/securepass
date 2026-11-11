@@ -14,7 +14,7 @@ Specs live in [docs/specs/0001-securepass-vault/](../specs/0001-securepass-vault
 | #   | Feature                                 | Phase      | Status      |
 | --- | --------------------------------------- | ---------- | ----------- |
 | 1   | Stack & architecture                    | Foundation | done        |
-| 2   | Coding standards & tooling              | Foundation | in-progress |
+| 2   | Coding standards & tooling              | Foundation | done        |
 | 3   | Crypto core basics                      | Slice 1    | in-progress |
 | 4   | Sync server basics                      | Slice 1    | in-progress |
 | 5   | Web vault: setup, unlock, first login   | Slice 1    | in-progress |
@@ -48,13 +48,13 @@ Set up the pnpm workspace so every later slice builds on real structure: shared 
   Code in `packages/`, `apps/server`, `apps/web`, `apps/extension`.
   [Spec 0001](../specs/0001-securepass-vault/index.md)
 
-### 2. Coding standards & tooling
+### 2. Coding standards & tooling · done
 
 Capture conventions, then install lint, format, and pre commit enforcement from the real scaffolded project. Also record the build approach in root `AGENTS.md`.
 **Done when:** root `AGENTS.md` reflects the real stack and build approach, and lint, format, and pre commit run clean.
 - [x] Capture conventions and tooling choices: `/audit`
 - [x] Install the tooling: `/develop tooling`
-- [ ] Check it runs clean: `/test`
+- [x] Check it runs clean: `/test`
 
 ## Slice 1: the thin thread (this is the walking skeleton)
 
@@ -69,8 +69,8 @@ The shared `packages/crypto` pieces that one login item needs: seal and open wit
   - [x] `splitKeys` with RFC 5869 vectors (AC-2)
   - [x] Vault key wrap, `sealItem`/`openItem`, `ItemPayload` schema (AC-6, AC-7, AC-23)
 - [x] Verify it: `/check verify crypto core basics`
-- [ ] Test it: `/test crypto core basics`
-- [ ] Review it: `/check review crypto core basics`
+- [x] Test it: `/test crypto core basics`
+- [x] Review it: `/check review crypto core basics`
 - [ ] Document it: `/document crypto core basics`
   [Spec 0001.1](../specs/0001-securepass-vault/0001-crypto-core.md) · code in `packages/crypto`, `packages/shared`
 
@@ -83,9 +83,9 @@ The Hono API on Workers and D1 with just enough to create the account, log in, a
   - [x] Hono app, D1 migration for all four tables, redacting logger, security headers (AC-2, AC-23)
   - [x] `POST /api/setup`, prelogin, login, device tokens and 401 codes (AC-1, AC-2)
   - [x] `PUT /api/items/:id` with `If-Match` and `GET /api/sync` (AC-8, AC-9)
-- [ ] Verify it: `/check verify sync server basics`
-- [ ] Test it: `/test sync server basics`
-- [ ] Review it: `/check review sync server basics`
+- [x] Verify it: `/check verify sync server basics`
+- [x] Test it: `/test sync server basics`
+- [x] Review it: `/check review sync server basics`
 - [ ] Document it: `/document sync server basics`
   [Spec 0001.2](../specs/0001-securepass-vault/0002-sync-server.md) · code in `apps/server`, `packages/shared`
 
@@ -94,15 +94,15 @@ The Hono API on Workers and D1 with just enough to create the account, log in, a
 Setup with a recovery kit, unlock, and a list where you can create one login, backed by the local cache and sync loop.
 **Done when:** you can run setup, unlock with the master password in under 2 seconds, create a login, and see it in the list after a sync.
 - [x] Design it (spec): `/architect web vault`
-- [ ] Build it: `/develop web vault first login`
-  - [ ] Setup (with recovery kit) and Unlock screens (AC-1, AC-5, AC-20)
-  - [ ] Shared cache module and sync loop (AC-8)
-  - [ ] Item list and login create (AC-7)
-- [ ] Verify it: `/check verify web vault first login`
-- [ ] Test it: `/test web vault first login`
+- [x] Build it: `/develop web vault first login`
+  - [x] Setup (with recovery kit) and Unlock screens (AC-1, AC-5, AC-20)
+  - [x] Shared cache module and sync loop (AC-8)
+  - [x] Item list and login create (AC-7)
+- [x] Verify it: `/check verify web vault first login`
+- [x] Test it: `/test web vault first login`
 - [ ] Review it: `/check review web vault first login`
 - [ ] Document it: `/document web vault first login`
-  [Spec 0001.3](../specs/0001-securepass-vault/0003-web-vault.md)
+  [Spec 0001.3](../specs/0001-securepass-vault/0003-web-vault.md) · code in `apps/web`, `packages/shared/src/cache`, `packages/shared/src/sync`
 
 ### 6. Extension: unlock and click to fill
 

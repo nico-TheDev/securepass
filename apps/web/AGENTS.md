@@ -10,7 +10,12 @@ React + Vite single page app where you manage the vault. Linting is oxlint today
 pnpm --filter @securepass/web dev
 pnpm --filter @securepass/web typecheck
 pnpm --filter @securepass/web build
+pnpm --filter @securepass/web test
 ```
+
+Tests run in Vitest (node by default). Component and hook tests opt in to jsdom with a `// @vitest-environment jsdom` comment at the top of the file.
+
+- Design system: build all UI to [design.md](./design.md) (art direction and the maximalist product bar); token values live in CSS. Product context is in [PRODUCT.md](./PRODUCT.md).
 
 ## Conventions
 
