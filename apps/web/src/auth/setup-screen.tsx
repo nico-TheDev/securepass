@@ -1,9 +1,8 @@
 import type { Cache } from '@securepass/shared/cache'
-import { type FormEvent, useId, useMemo, useState } from 'react'
-import { env } from '../env'
+import { type FormEvent, useMemo, useState } from 'react'
 import { PasswordField, TextField } from '../ui/text-field'
 import { AuthShell } from './auth-shell'
-import { RECOVERY_KIT_FILE_NAME, recoveryKitText } from './recovery-kit-file'
+import { kitConfirmed, RecoveryKitPanel } from './recovery-kit-panel'
 import { measureStrength } from './strength'
 import { StrengthMeter } from './strength-meter'
 import {
@@ -167,27 +166,10 @@ function RecoveryKitStep({
   readonly onDone: (session: Session) => void
   readonly onSignIn: () => void
 }) {
-  const confirmId = useId()
   const [typed, setTyped] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<SetupError | undefined>()
-  const lastGroup = pending.kit.groups.at(-1) ?? ''
-  const confirmed = typed.trim().toUpperCase() === lastGroup
-
-  const download = () => {
-    const text = recoveryKitText(
-      pending.kit,
-      pending.request.email,
-      env.VITE_API_URL || window.location.origin,
-      new Date(),
-    )
-    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }))
-    const link = document.createElement('a')
-    link.href = url
-    link.download = RECOVERY_KIT_FILE_NAME
-    link.click()
-    URL.revokeObjectURL(url)
-  }
+  const confirmed = kitConfirmed(pending.kit, typed)
 
   const finish = async (event: FormEvent) => {
     event.preventDefault()
@@ -209,35 +191,13 @@ function RecoveryKitStep({
           for you. Keep it offline.
         </p>
       </div>
-      <ol className="kit-key" aria-label="Recovery key, in groups of four characters">
-        {pending.kit.groups.map((group, index) => (
-          // The groups never change or reorder, so the index is a stable key.
-          // biome-ignore lint/suspicious/noArrayIndexKey: fixed list
-          <li key={index}>{group}</li>
-        ))}
-      </ol>
-      <div className="kit-actions">
-        <button className="btn" type="button" onClick={download}>
-          Download {RECOVERY_KIT_FILE_NAME}
-        </button>
-      </div>
-      <div className="field">
-        <label htmlFor={confirmId}>Type the last group to confirm you saved it</label>
-        <input
-          id={confirmId}
-          value={typed}
-          onChange={(event) => setTyped(event.target.value)}
-          autoComplete="off"
-          autoCapitalize="characters"
-          spellCheck={false}
-          maxLength={8}
-          disabled={saving}
-          aria-describedby={`${confirmId}-hint`}
-        />
-        <p id={`${confirmId}-hint`} className="field-hint">
-          The last group is the final four characters of the key above.
-        </p>
-      </div>
+      <RecoveryKitPanel
+        kit={pending.kit}
+        email={pending.request.email}
+        typed={typed}
+        onTyped={setTyped}
+        disabled={saving}
+      />
       {error ? (
         <p className="notice notice-error" role="alert">
           {setupErrorText(error)}{' '}

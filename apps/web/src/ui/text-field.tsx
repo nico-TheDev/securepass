@@ -10,6 +10,9 @@ type CommonProps = {
   readonly required?: boolean
   readonly autoFocus?: boolean
   readonly disabled?: boolean
+  readonly inputMode?: 'text' | 'numeric'
+  readonly list?: string
+  readonly placeholder?: string
 }
 
 const describedBy = (id: string, hint: ReactNode, error: string | undefined) =>
@@ -92,9 +95,9 @@ export function PasswordField(props: CommonProps & { readonly children?: ReactNo
 }
 
 /** A labelled multi line input. */
-export function TextArea(props: CommonProps) {
+export function TextArea(props: CommonProps & { readonly rows?: number }) {
   const id = useId()
-  const { label, value, onChange, hint, error, ...rest } = props
+  const { label, value, onChange, hint, error, inputMode: _mode, list: _list, ...rest } = props
   return (
     <div className="field">
       <label htmlFor={id}>{label}</label>

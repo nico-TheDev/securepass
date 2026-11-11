@@ -29,16 +29,42 @@ describe('SignInScreen', () => {
     await fill(user)
 
     await waitFor(() => expect(onSignedIn).toHaveBeenCalledWith(session))
-    expect(signIn).toHaveBeenCalledWith(cache, 'me@example.com', 'hunter2hunter2')
+    expect(signIn).toHaveBeenCalledWith(cache, 'me@example.com', 'hunter2hunter2', {
+      totp_code: '',
+    })
   })
 
-  it.each<[SignInError['kind'], RegExp]>([
-    ['wrong_credentials', /email or master password was not accepted/i],
-    ['network', /could not reach the server/i],
-    ['crypto', /settings this app will not accept/i],
-    ['server', /could not sign you in/i],
-  ])('shows an alert for %s and clears the password', async (kind, message) => {
-    vi.mocked(signIn).mockResolvedValue({ ok: false, error: { kind } })
+  it('sends the authenticator code, or a recovery code when chosen (covers: AC-4)', async () => {
+    vi.mocked(signIn).mockResolvedValue({ ok: true, value: session })
+    const user = userEvent.setup()
+    render(<SignInScreen cache={cache} onSignedIn={vi.fn()} onSetup={vi.fn()} />)
+    await user.type(screen.getByLabelText('Authenticator code'), '123456')
+    await fill(user)
+    await waitFor(() =>
+      expect(signIn).toHaveBeenLastCalledWith(cache, 'me@example.com', 'hunter2hunter2', {
+        totp_code: '123456',
+      }),
+    )
+
+    await user.clear(screen.getByLabelText('Email'))
+    await user.click(screen.getByRole('button', { name: 'Use a recovery code instead' }))
+    await user.type(screen.getByLabelText('Recovery code'), 'ABCD')
+    await fill(user)
+    await waitFor(() =>
+      expect(signIn).toHaveBeenLastCalledWith(cache, 'me@example.com', 'hunter2hunter2', {
+        recovery_code: 'ABCD',
+      }),
+    )
+  })
+
+  it.each<[SignInError, RegExp]>([
+    [{ kind: 'wrong_credentials' }, /email, master password, or code was not accepted/i],
+    [{ kind: 'network' }, /could not reach the server/i],
+    [{ kind: 'crypto' }, /settings this app will not accept/i],
+    [{ kind: 'server' }, /could not finish this/i],
+    [{ kind: 'rate_limited', retryAfter: 120 }, /wait 2 minute/i],
+  ])('shows an alert for %o and clears the password', async (error, message) => {
+    vi.mocked(signIn).mockResolvedValue({ ok: false, error })
     const onSignedIn = vi.fn()
     const user = userEvent.setup()
     render(<SignInScreen cache={cache} onSignedIn={onSignedIn} onSetup={vi.fn()} />)

@@ -1,19 +1,21 @@
 // @vitest-environment jsdom
 import type { Cache } from '@securepass/shared/cache'
-import { type SyncError, syncOnce } from '@securepass/shared/sync'
+import type { SyncError } from '@securepass/shared/sync'
+import { syncVault as syncOnce } from '@securepass/vault'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest'
 import { useSync } from './use-sync'
 
-vi.mock('@securepass/shared/sync', () => ({ syncOnce: vi.fn() }))
+vi.mock('@securepass/vault', () => ({ syncVault: vi.fn() }))
 
 const cache = {} as Cache
+const vaultKey = new Uint8Array(32)
 const synced = () => ({ ok: true as const, value: undefined })
 const failed = (error: SyncError) => ({ ok: false as const, error })
 
 let onSynced: Mock<() => void>
 let onRevoked: Mock<() => void>
-const setup = () => renderHook(() => useSync({ cache, onSynced, onRevoked }))
+const setup = () => renderHook(() => useSync({ cache, vaultKey, onSynced, onRevoked }))
 
 beforeEach(() => {
   onSynced = vi.fn<() => void>()

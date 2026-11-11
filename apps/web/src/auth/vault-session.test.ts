@@ -251,10 +251,20 @@ describe('signIn', () => {
     expect(await readMeta(cache)).toBeUndefined()
   })
 
-  it('returns server for a 429 from login', async () => {
+  it('returns rate_limited with the wait for a 429 from login (covers: AC-4)', async () => {
     serverFrom(await prepare())
-    vi.mocked(postLogin).mockResolvedValue(err({ kind: 'status', status: 429 }))
-    expect(await signIn(cache, EMAIL, PASSWORD)).toEqual({ ok: false, error: { kind: 'server' } })
+    vi.mocked(postLogin).mockResolvedValue(err({ kind: 'status', status: 429, retryAfter: 120 }))
+    expect(await signIn(cache, EMAIL, PASSWORD)).toEqual({
+      ok: false,
+      error: { kind: 'rate_limited', retryAfter: 120 },
+    })
+  })
+
+  it('sends the TOTP code with the auth key, with spaces removed (covers: AC-4)', async () => {
+    serverFrom(await prepare())
+    await signIn(cache, EMAIL, PASSWORD, { totp_code: '123 456' })
+    expect(vi.mocked(postLogin).mock.calls[0]?.[0]).toMatchObject({ totp_code: '123456' })
+    expect(vi.mocked(postLogin).mock.calls[0]?.[0]).not.toHaveProperty('recovery_code')
   })
 
   it('returns network when prelogin cannot reach the server', async () => {

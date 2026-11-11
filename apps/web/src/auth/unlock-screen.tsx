@@ -9,10 +9,11 @@ type Props = {
   readonly meta: CacheMeta
   readonly notice?: string | undefined
   readonly onUnlocked: (session: Session) => void
+  readonly onRecover?: () => void
 }
 
 /** Unlock from the local cache. A wrong password gets one plain message and nothing more. */
-export function UnlockScreen({ cache, meta, notice, onUnlocked }: Props) {
+export function UnlockScreen({ cache, meta, notice, onUnlocked, onRecover }: Props) {
   const [password, setPassword] = useState('')
   const [working, setWorking] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -67,6 +68,11 @@ export function UnlockScreen({ cache, meta, notice, onUnlocked }: Props) {
         <button className="btn btn-primary" type="submit" disabled={working || password === ''}>
           {working ? 'Unlocking…' : 'Unlock'}
         </button>
+        {onRecover ? (
+          <button className="btn btn-quiet" type="button" onClick={onRecover} disabled={working}>
+            Forgot your master password?
+          </button>
+        ) : null}
       </form>
     </AuthShell>
   )

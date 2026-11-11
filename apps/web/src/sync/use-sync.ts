@@ -1,5 +1,6 @@
 import type { Cache } from '@securepass/shared/cache'
-import { type SyncError, syncOnce } from '@securepass/shared/sync'
+import type { SyncError } from '@securepass/shared/sync'
+import { syncVault } from '@securepass/vault'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { env } from '../env'
 
@@ -15,7 +16,8 @@ const FIVE_MINUTES = 5 * 60 * 1000
 
 type Options = {
   readonly cache: Cache
-  /** Called after each round that reached the server, so the list can reload from the cache. */
+  readonly vaultKey: Uint8Array
+  /** Called after every round, so the list can reload from the cache. */
   readonly onSynced: () => void
   /** Called when the server says this device was revoked. */
   readonly onRevoked: () => void
@@ -26,7 +28,7 @@ type Options = {
  * whenever the browser comes back online, and whenever `syncNow` is called (after a local write).
  * Rounds never overlap: a call during a round is folded into one more round right after.
  */
-export const useSync = ({ cache, onSynced, onRevoked }: Options) => {
+export const useSync = ({ cache, vaultKey, onSynced, onRevoked }: Options) => {
   const [status, setStatus] = useState<SyncStatus>({ state: 'idle' })
   const running = useRef(false)
   const again = useRef(false)
@@ -43,7 +45,7 @@ export const useSync = ({ cache, onSynced, onRevoked }: Options) => {
       do {
         again.current = false
         setStatus({ state: 'syncing' })
-        const result = await syncOnce(cache, env.VITE_API_URL)
+        const result = await syncVault(cache, vaultKey, env.VITE_API_URL)
         if (result.ok) {
           setStatus({ state: 'synced', at: Date.now() })
           callbacks.current.onSynced()
@@ -54,12 +56,14 @@ export const useSync = ({ cache, onSynced, onRevoked }: Options) => {
           return
         } else {
           setStatus({ state: 'attention', reason: result.error })
+          // Writes that landed before the round stopped still changed the cache.
+          callbacks.current.onSynced()
         }
       } while (again.current)
     } finally {
       running.current = false
     }
-  }, [cache])
+  }, [cache, vaultKey])
 
   useEffect(() => {
     void syncNow()

@@ -1,7 +1,5 @@
 import {
-  assertKdf,
   deriveMasterKey,
-  fromBase64Url,
   KDF_FLOOR,
   newAccountId,
   newKdfSalt,
@@ -10,20 +8,30 @@ import {
   type RecoveryKit,
   splitKeys,
   toBase64Url,
-  unwrapVaultKey,
   wrapVaultKey,
   wrapVaultKeyRecovery,
   zeroize,
 } from '@securepass/crypto'
 import { err, type KdfParams, ok, type Result, type SetupRequest } from '@securepass/shared'
 import { type Cache, type CacheMeta, writeMeta } from '@securepass/shared/cache'
+import {
+  type SecondProof,
+  type Session,
+  type SignInError,
+  signIn as vaultSignIn,
+} from '@securepass/vault'
 import { type ApiError, postLogin, postPrelogin, postSetup } from './api'
 
-/** The name this browser shows in the device list. */
-const DEVICE_NAME = 'Web vault'
+export {
+  type SecondProof,
+  type Session,
+  type SignInError,
+  type UnlockError,
+  unlockWithPassword,
+} from '@securepass/vault'
 
-/** An unlocked vault: the keys live only here, in memory, and are dropped on lock. */
-export type Session = { readonly vaultKey: Uint8Array; readonly meta: CacheMeta }
+/** The name this browser shows in the device list. */
+export const DEVICE_NAME = 'Web vault'
 
 /** Everything setup made, held in memory until the user confirms the recovery kit. */
 export type PendingSetup = {
@@ -39,14 +47,6 @@ export type SetupError =
   | { readonly kind: 'bad_token' }
   | { readonly kind: 'account_exists' }
   | { readonly kind: 'network' }
-  | { readonly kind: 'server' }
-
-export type UnlockError = { readonly kind: 'wrong_password' } | { readonly kind: 'crypto' }
-
-export type SignInError =
-  | { readonly kind: 'wrong_credentials' }
-  | { readonly kind: 'network' }
-  | { readonly kind: 'crypto' }
   | { readonly kind: 'server' }
 
 /** Lets the browser paint "working" before a long derivation blocks the main thread. */
@@ -129,96 +129,19 @@ export const completeSetup = async (
 }
 
 /**
- * Unlocks from the local cache with no server call. A wrong password fails the vault key tamper check,
- * and the caller shows one message for it. A newly accepted KDF setting is pinned after success.
- */
-export const unlockWithPassword = async (
-  cache: Cache,
-  meta: CacheMeta,
-  password: string,
-): Promise<Result<Session, UnlockError>> => {
-  await nextFrame()
-  const salt = fromBase64Url(meta.kdf_salt)
-  if (!salt) return err({ kind: 'crypto' })
-  const master = await deriveMasterKey({
-    password,
-    kdf: meta.kdf,
-    kdfSalt: salt,
-    pinnedKdf: meta.pinned_kdf,
-  })
-  if (!master.ok) return err({ kind: 'crypto' })
-  const { enc_key } = await splitKeys(master.value)
-  zeroize(master.value)
-  const vaultKey = await unwrapVaultKey(
-    enc_key,
-    meta.wrapped_vault_key,
-    meta.account_id,
-    meta.kdf,
-    salt,
-  )
-  zeroize(enc_key)
-  if (!vaultKey.ok) return err({ kind: 'wrong_password' })
-
-  const next: CacheMeta = { ...meta, pinned_kdf: meta.kdf }
-  if (meta.pinned_kdf === undefined) await writeMeta(cache, next)
-  return ok({ vaultKey: vaultKey.value, meta: next })
-}
-
-/**
  * Signs in on a device with no cache: asks the server for the KDF settings, derives the keys here,
- * proves the auth key, and opens the wrapped vault key the server returns.
+ * proves the auth key (plus a TOTP or recovery code once TOTP is on), and opens the wrapped vault
+ * key the server returns.
  */
-export const signIn = async (
+export const signIn = (
   cache: Cache,
   email: string,
   password: string,
-): Promise<Result<Session, SignInError>> => {
-  const normalized = email.trim().toLowerCase()
-  const prelogin = await postPrelogin(normalized)
-  if (!prelogin.ok)
-    return err(prelogin.error.kind === 'network' ? { kind: 'network' } : { kind: 'server' })
-  const { kdf, kdf_salt } = prelogin.value
-
-  const checked = assertKdf(kdf)
-  const salt = fromBase64Url(kdf_salt)
-  if (!checked.ok || !salt) return err({ kind: 'crypto' })
-
-  await nextFrame()
-  const master = await deriveMasterKey({ password, kdf: checked.value, kdfSalt: salt })
-  if (!master.ok) return err({ kind: 'crypto' })
-  const { enc_key, auth_key } = await splitKeys(master.value)
-  zeroize(master.value)
-
-  const login = await postLogin({
-    email: normalized,
-    auth_key: toBase64Url(auth_key),
-    device_name: DEVICE_NAME,
+  second?: SecondProof,
+): Promise<Result<Session, SignInError>> =>
+  vaultSignIn({ prelogin: postPrelogin, login: postLogin }, cache, {
+    email,
+    password,
+    second,
+    deviceName: DEVICE_NAME,
   })
-  zeroize(auth_key)
-  if (!login.ok) {
-    zeroize(enc_key)
-    if (login.error.kind === 'network') return err({ kind: 'network' })
-    return err(login.error.status === 401 ? { kind: 'wrong_credentials' } : { kind: 'server' })
-  }
-
-  const { token, account_id, wrapped_vault_key } = login.value
-  const vaultKey = await unwrapVaultKey(enc_key, wrapped_vault_key, account_id, checked.value, salt)
-  zeroize(enc_key)
-  if (!vaultKey.ok) return err({ kind: 'crypto' })
-
-  const meta: CacheMeta = {
-    account_id,
-    email: normalized,
-    kdf: checked.value,
-    kdf_salt,
-    pinned_kdf: checked.value,
-    wrapped_vault_key,
-    // Start at 0 so the first sync pulls every item.
-    last_revision: 0,
-    token,
-    device_id: crypto.randomUUID(),
-    seen_seq: {},
-  }
-  await writeMeta(cache, meta)
-  return ok({ vaultKey: vaultKey.value, meta })
-}
