@@ -5,10 +5,13 @@ export {
   clearCache,
   openCache,
   type PendingOp,
+  queueLatestOp,
   queueOp,
+  readItem,
   readItems,
   readMeta,
   readPending,
   removePending,
+  rewritePending,
   writeMeta,
 } from './cache'

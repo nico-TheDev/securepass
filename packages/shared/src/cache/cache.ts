@@ -17,6 +17,10 @@ export type CacheMeta = {
   readonly device_id: string
   /** Highest `seq` seen per item id, for rollback detection. */
   readonly seen_seq: Readonly<Record<string, number>>
+  /** Ids of items for which the server sent an older version than this device had seen. */
+  readonly flagged_rollbacks?: readonly string[]
+  /** True once this device knows the forced TOTP enrollment is done. */
+  readonly totp_enrolled?: boolean
 }
 
 /** A write waiting to reach the server. Replayed in order. */
@@ -71,13 +75,16 @@ export const readItems = (cache: Cache): Promise<SyncItem[]> => cache.getAll('it
 /**
  * Applies a sync page: purged rows are removed, the rest are stored, and `last_revision` moves forward.
  * One transaction, so a crash cannot leave rows newer than the revision.
+ * @param replaceAll - True on a full resync: every cached item is dropped first.
  */
 export const applySyncPage = async (
   cache: Cache,
   rows: readonly SyncItem[],
   revision: number,
+  replaceAll = false,
 ): Promise<void> => {
   const tx = cache.transaction(['items', 'meta'], 'readwrite')
+  if (replaceAll) await tx.objectStore('items').clear()
   for (const row of rows) {
     if (row.purged) await tx.objectStore('items').delete(row.id)
     else await tx.objectStore('items').put(row)
@@ -91,6 +98,29 @@ export const applySyncPage = async (
 export const queueOp = async (cache: Cache, op: PendingOp): Promise<void> => {
   await cache.add('pending_ops', op)
 }
+
+/**
+ * Queues a write, replacing any write already queued for the same item. Only the newest version
+ * of an item needs to reach the server, and it keeps the base revision of the oldest queued write,
+ * which is the last revision the server is known to hold.
+ */
+export const queueLatestOp = async (cache: Cache, op: PendingOp): Promise<void> => {
+  const tx = cache.transaction('pending_ops', 'readwrite')
+  const queued = (await tx.store.getAll()).filter((entry) => entry.id === op.id)
+  for (const entry of queued) if (entry.seq !== undefined) await tx.store.delete(entry.seq)
+  const { seq: _seq, ...rest } = op
+  await tx.store.add({ ...rest, base_revision: queued[0]?.base_revision ?? op.base_revision })
+  await tx.done
+}
+
+/** Replaces a queued write in place, keeping its position in the queue. */
+export const rewritePending = async (cache: Cache, op: PendingOp): Promise<void> => {
+  if (op.seq !== undefined) await cache.put('pending_ops', op)
+}
+
+/** One cached server row, or `undefined`. */
+export const readItem = (cache: Cache, id: string): Promise<SyncItem | undefined> =>
+  cache.get('items', id)
 
 /** Pending writes in the order they were queued. */
 export const readPending = (cache: Cache): Promise<PendingOp[]> => cache.getAll('pending_ops')
