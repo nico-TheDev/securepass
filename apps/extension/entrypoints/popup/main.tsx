@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { App } from './app.tsx'
+import { App } from '../../src/popup/app'
 import './style.css'
 
 const rootElement = document.getElementById('root')
